@@ -1,8 +1,16 @@
 import json
+import os
 
 class SubscriptionManager:
     def __init__(self, subscriptions_file):
-        self.subscriptions_file = subscriptions_file
+        # 如果传入的是相对路径，将其转换为相对于项目根目录的绝对路径
+        if not os.path.isabs(subscriptions_file):
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(current_dir)
+            self.subscriptions_file = os.path.join(project_root, subscriptions_file)
+        else:
+            self.subscriptions_file = subscriptions_file
+
         self.subscriptions = self.load_subscriptions()
     
     def load_subscriptions(self):
