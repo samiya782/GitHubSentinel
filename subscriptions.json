@@ -1,3 +1,4 @@
 [
-    "langchain-ai/langchain"
+    "langchain-ai/langchain",
+    "deepseek-ai/DeepSeek-V3"
 ]
