@@ -1,8 +1,10 @@
 import json
 import os
+from dotenv import load_dotenv
 
 class Config:
     def __init__(self):
+        load_dotenv()
         self.load_config()
     
     def load_config(self):

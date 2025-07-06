@@ -10,6 +10,7 @@ class ReportGenerator:
 
     def generate_daily_report(self, markdown_file_path):
         # 读取Markdown文件并使用LLM生成日报
+        print(f"Generating daily report from {markdown_file_path}...")
         with open(markdown_file_path, 'r') as file:
             markdown_content = file.read()
 

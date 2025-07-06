@@ -2,13 +2,18 @@ import os
 import json
 from openai import OpenAI  # 导入OpenAI库用于访问GPT模型
 from logger import LOG  # 导入日志模块
+from enum import StrEnum
+
+class ReportType(StrEnum):
+    GITHUB = 'github'
+    HACKER_NEWS = 'hacker_news'
 
 class LLM:
-    def __init__(self):
+    def __init__(self, report_type: ReportType = ReportType.GITHUB):
         # 创建一个OpenAI客户端实例
         self.client = OpenAI()
         # 从TXT文件加载提示信息
-        with open("prompts/report_prompt.txt", "r", encoding='utf-8') as file:
+        with open(f"prompts/{report_type}_report_prompt.txt", "r", encoding='utf-8') as file:
             self.system_prompt = file.read()
 
     def generate_daily_report(self, markdown_content, dry_run=False):
