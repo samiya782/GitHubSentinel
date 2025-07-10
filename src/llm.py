@@ -2,9 +2,9 @@ import os
 import json
 from openai import OpenAI  # 导入OpenAI库用于访问GPT模型
 from logger import LOG  # 导入日志模块
-from enum import StrEnum
+from enum import Enum
 
-class ReportType(StrEnum):
+class ReportType(str, Enum):
     GITHUB = 'github'
     HACKER_NEWS = 'hacker_news'
 
