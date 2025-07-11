@@ -2,9 +2,15 @@ import os
 import json
 from openai import OpenAI  # 导入OpenAI库用于访问GPT模型
 from logger import LOG  # 导入日志模块
-from enum import Enum
+import sys
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+# 否则，使用我们安装的回溯包 strenum。
+else:
+    from strenum import StrEnum
+from enum import StrEnum
 
-class ReportType(str, Enum):
+class ReportType(StrEnum):
     GITHUB = 'github'
     HACKER_NEWS = 'hacker_news'
 
