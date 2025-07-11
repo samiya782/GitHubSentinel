@@ -54,6 +54,7 @@ def update_model_list(model_type):
         return gr.Dropdown(choices=["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"], label="选择模型")
     elif model_type == "ollama":
         return gr.Dropdown(choices=["llama3.1", "gemma2:2b", "qwen2:7b"], label="选择模型")
+    return None
 
 
 # 创建 Gradio 界面
@@ -113,6 +114,6 @@ with gr.Blocks(title="GitHubSentinel") as demo:
 
 
 if __name__ == "__main__":
-    demo.launch(share=True, server_name="0.0.0.0")  # 启动界面并设置为公共可访问
+    demo.launch()  # 启动界面并设置为公共可访问
     # 可选带有用户认证的启动方式
     # demo.launch(share=True, server_name="0.0.0.0", auth=("django", "1234"))
