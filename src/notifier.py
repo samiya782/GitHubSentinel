@@ -31,6 +31,18 @@ class Notifier:
             self.send_email(subject, report)
         else:
             LOG.warning("邮件设置未配置正确，无法发送 Hacker News 报告通知")
+
+    def notify_ah_gov_report(self, date, report):
+        """
+        发送安徽政府网站最新文件报告邮件
+        :param date: 报告日期
+        :param report: 报告内容
+        """
+        if self.email_settings:
+            subject = f"[安徽政府] {date} 最新文件"
+            self.send_email(subject, report)
+        else:
+            LOG.warning("邮件设置未配置正确，无法发送安徽政府报告通知")
     
     def send_email(self, subject, report):
         LOG.info(f"准备发送邮件:{subject}")
@@ -50,7 +62,7 @@ class Notifier:
                 server.sendmail(msg['From'], msg['To'], msg.as_string())
                 LOG.info("邮件发送成功！")
         except Exception as e:
-            LOG.error(f"发送邮件失败：{str(e)}")
+            LOG.error(f"发生错误：{str(e)}")
 
 if __name__ == '__main__':
     from config import Config

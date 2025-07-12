@@ -14,8 +14,8 @@ class TestLLM(unittest.TestCase):
         """
         在每个测试方法运行前执行，初始化 LLM 实例和测试数据。
         """
-        self.config = Config()  # 初始化配置对象
-        self.llm = LLM(self.config)  # 使用配置对象初始化 LLM 实例
+        # self.config = Config()  # 初始化配置对象
+        # self.llm = LLM(self.config)  # 使用配置对象初始化 LLM 实例
 
         # 设置示例的系统提示信息
         self.system_prompt = "Your specific system prompt for GitHub report generation"
@@ -35,6 +35,8 @@ class TestLLM(unittest.TestCase):
         """
         测试传入无效模型类型时的错误处理路径。
         """
+        self.config = Config()  # 初始化配置对象
+        self.llm = LLM(self.config)  # 使用配置对象初始化 LLM 实例
         self.config.llm_model_type = "invalid_model"
         with self.assertRaises(ValueError):
             llm = LLM(self.config)
@@ -46,6 +48,9 @@ class TestLLM(unittest.TestCase):
         """
         测试 Ollama API 返回的响应结构无效时的错误处理路径。
         """
+        self.config = Config()  # 初始化配置对象
+        self.config.llm_model_type = "ollama"
+        self.llm = LLM(self.config)  # 使用配置对象初始化 LLM 实例
         # 模拟 Ollama API 的无效响应
         mock_response = MagicMock()
         mock_response.json.return_value = {"invalid_key": "no_content_here"}
@@ -74,6 +79,30 @@ class TestLLM(unittest.TestCase):
         
         # 检查是否记录了预期的错误日志
         mock_log_error.assert_called_with("生成报告时发生错误：OpenAI API error")
+
+    @patch('llm.genai')  # 模拟整个 genai 模块
+    @patch('llm.LOG.error')
+    def test_gemini_exception_handling(self, mock_log_error, mock_genai):
+        """
+        测试调用 Gemini 模型时发生异常的错误处理路径。
+        """
+        # 1. 准备 (Arrange)
+        # 让模拟的 client 在被调用时抛出一个异常
+        mock_genai.Client().models.generate_content.side_effect = Exception("Gemini API error")
+
+        # 配置为使用 gemini 模型
+        config = Config()
+        config.llm_model_type = "gemini"
+        llm = LLM(config)
+
+        # 2. 执行 & 断言 (Act & Assert)
+        # 验证调用 generate_report 会抛出异常
+        with self.assertRaises(Exception):
+            llm.generate_report(self.system_prompt, self.github_content)
+
+        # 验证错误日志是否被正确记录
+        mock_log_error.assert_called_with("生成报告时发生错误：Gemini API error")
+
 
 
 if __name__ == '__main__':

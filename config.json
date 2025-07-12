@@ -13,15 +13,17 @@
         "to": "2903694269@qq.com"
     },
     "llm": {
-        "model_type": "ollama",
+        "model_type": "gemini",
         "openai_model_name": "gpt-4o-mini",
         "ollama_model_name": "llama3.1",
-        "ollama_api_url": "http://localhost:11434/api/chat"
+        "ollama_api_url": "http://localhost:11434/api/chat",
+        "gemini_model_name": "gemini-2.5-flash"
     },
     "report_types": [
         "github",
         "hacker_news_hours_topic",
-        "hacker_news_daily_report"
+        "hacker_news_daily_report",
+        "ah_gov_daily_report"
     ],
     "slack": {
         "webhook_url": "your_slack_webhook_url"

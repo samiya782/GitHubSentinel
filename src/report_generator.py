@@ -13,7 +13,7 @@ class ReportGenerator:
         预加载所有可能的提示文件，并存储在字典中。
         """
         for report_type in self.report_types:  # 使用从配置中加载的报告类型
-            prompt_file = f"prompts/{report_type}_{self.llm.model}_prompt.txt"
+            prompt_file = f"prompts/{report_type}_{self.llm.model}_prompt.md"
             if not os.path.exists(prompt_file):
                 LOG.error(f"提示文件不存在: {prompt_file}")
                 raise FileNotFoundError(f"提示文件未找到: {prompt_file}")
@@ -76,6 +76,22 @@ class ReportGenerator:
         LOG.info(f"Hacker News 每日汇总报告已保存到 {report_file_path}")
         return report, report_file_path
 
+    def generate_ah_gov_daily_report(self, markdown_file_path):
+        """
+        生成安徽政府每日汇总的报告，并保存为 {original_filename}_report.md。
+        """
+        with open(markdown_file_path, 'r') as file:
+            markdown_content = file.read()
+
+        system_prompt = self.prompts.get("ah_gov_daily_report")
+        report = self.llm.generate_report(system_prompt, markdown_content)
+
+        report_file_path = os.path.splitext(markdown_file_path)[0] + "_biz.md"
+        with open(report_file_path, 'w+') as report_file:
+            report_file.write(report)
+
+        LOG.info(f"安徽政府每日汇总报告已保存到 {report_file_path}")
+        return report, report_file_path
 
     def _aggregate_topic_reports(self, directory_path):
         """

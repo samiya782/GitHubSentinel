@@ -1,6 +1,8 @@
 import json
 import requests
 from openai import OpenAI  # 导入OpenAI库用于访问GPT模型
+from google import genai
+from google.genai import types
 from logger import LOG  # 导入日志模块
 
 class LLM:
@@ -16,6 +18,8 @@ class LLM:
             self.client = OpenAI()  # 创建OpenAI客户端实例
         elif self.model == "ollama":
             self.api_url = config.ollama_api_url  # 设置Ollama API的URL
+        elif self.model == "gemini":
+            self.client = genai.Client()
         else:
             LOG.error(f"不支持的模型类型: {self.model}")
             raise ValueError(f"不支持的模型类型: {self.model}")  # 如果模型类型不支持，抛出错误
@@ -38,8 +42,32 @@ class LLM:
             return self._generate_report_openai(messages)
         elif self.model == "ollama":
             return self._generate_report_ollama(messages)
+        elif self.model == "gemini":
+            return self._generate_report_gemini(messages)
         else:
             raise ValueError(f"不支持的模型类型: {self.model}")
+
+    def _generate_report_gemini(self, messages):
+        """
+        使用 Google Gemini 模型生成报告。
+
+        :param messages: 包含系统提示和用户内容的消息列表。
+        :return: 生成的报告内容
+        """
+        LOG.info(f"使用 Gemini {self.config.gemini_model_name} 模型生成报告。")
+        try:
+            response = self.client.models.generate_content(
+                model=self.config.gemini_model_name,  # 使用配置中的Gemini模型名称
+                config=types.GenerateContentConfig(
+                    system_instruction=messages[0]['content'],  # 系统提示
+                ),
+                contents=messages[1]['content'],
+            )
+            LOG.debug("Gemini 响应: {}", response)
+            return response.text  # 返回生成的报告内容
+        except Exception as e:
+            LOG.error(f"生成报告时发生错误：{e}")
+            raise
 
     def _generate_report_openai(self, messages):
         """

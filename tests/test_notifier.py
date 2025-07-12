@@ -38,7 +38,12 @@ class TestNotifier(unittest.TestCase):
 
         ## Top 1：硬盘驱动器的讨论引发热门讨论
         """
+        self.test_ah_gov_biz_opp = """# **商业机会分析报告 2025-07-12**
 
+        ## **1. 商机总览：**
+        
+        安徽省近期密集出台的政策文件，清晰地勾勒出一幅以“**数字经济与实体经济深度融合**”为主线，以“**新质生产力培育**”和“**高水平安全保障**”为两翼的宏伟蓝图。这为我公司提供了一个前所未有的战略机遇窗口。
+        """
         # 设置日志捕获
         self.log_capture = StringIO()
         self.capture_id = LOG.add(self.log_capture, level="INFO")
@@ -69,6 +74,18 @@ class TestNotifier(unittest.TestCase):
         """
         # 执行邮件发送
         self.notifier.notify_hn_report("2024-09-01", self.test_hn_report)
+
+        # 获取并检查日志内容
+        log_content = self.log_capture.getvalue()
+        self.assertIn("邮件发送成功！", log_content)
+
+    @patch('smtplib.SMTP_SSL')
+    def test_notify_ah_gov_report_success(self, mock_smtp):
+        """
+        测试在邮件配置正确的情况下，Hacker News 报告邮件是否成功发送，并检查日志输出。
+        """
+        # 执行邮件发送
+        self.notifier.notify_ah_gov_report("2024-09-01", self.test_ah_gov_biz_opp)
 
         # 获取并检查日志内容
         log_content = self.log_capture.getvalue()
