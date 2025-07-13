@@ -1,204 +1,261 @@
+import asyncio
+import os
+import re
+import base64
+import uuid
 from datetime import datetime
 from urllib.parse import urljoin
-import re
-from selenium import webdriver
-from selenium.webdriver.edge.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from logger import LOG  # 导入日志模块
-import os  # 导入os模块用于文件和目录操作
-from tqdm import tqdm  # 导入tqdm模块用于显示进度条
+from typing import List, Dict, Optional, Tuple
+
+import httpx
+from bs4 import BeautifulSoup
+from markdownify import markdownify as md
+from tqdm import tqdm
+
+from logger import LOG
 
 class AhGovClient:
+    """
+    一个高效的异步客户端，用于爬取安徽省政府网站的文章，
+    并将结果导出为Markdown文件。
+    内部使用 httpx, asyncio 和 BeautifulSoup 实现。
+    """
     ParseConfigs = [
         {
             "urls": ["https://www.ah.gov.cn/public/index.html"],
             "a_css": "a.tit",
             "content_css": "#container > div.container",
         },
-        # {
-        #     "urls": [
-        #         "https://www.ah.gov.cn/public/column/1741?type=4&action=list&nav=3&catId=7036435&isChild=true",
-        #         "https://www.ah.gov.cn/public/column/1741?type=4&action=list&nav=3&catId=7036440&isChild=true",
-        #         "https://www.ah.gov.cn/public/column/1741?type=4&action=list&nav=3&catId=7036443&isChild=true",
-        #         "https://www.ah.gov.cn/public/column/1741?type=4&action=list&nav=3&catId=6711231&isChild=true",
-        #         "https://www.ah.gov.cn/public/column/1741?type=4&action=list&nav=3&catId=6711261&isChild=true",
-        #         "https://www.ah.gov.cn/xxgk/szfgb/2025/dlh/index.html",
-        #         "https://www.ah.gov.cn/public/column/1741?type=4&action=list&nav=3&catId=6711241&isChild=true",
-        #         "https://www.ah.gov.cn/public/column/1741?type=4&action=list&nav=3&catId=6979911&isChild=true",
-        #         "https://www.ah.gov.cn/public/column/1741?type=4&action=list&nav=3&catId=6979901&isChild=true",
-        #         "https://www.ah.gov.cn/public/column/1741?type=4&action=list&nav=3&catId=7018043&isChild=true",
-        #         "https://www.ah.gov.cn/public/column/1741?type=4&action=list&nav=3&catId=6979891&isChild=true",
-        #         "https://www.ah.gov.cn/xxgk/gsgg/index.html"
-        #     ],
-        #     "a_css": 'a.left, a.title',
-        #     "content_css": '#container div.gk_container, #container div.container:has(.con_main), .main-content #content'
-        # }
     ]
-    def __init__(self):
-        LOG.debug("正在启动浏览器...")
-        options = webdriver.EdgeOptions()
-        options.add_argument("--headless")
-        options.add_argument('--edge-skip-compat-layer-relaunch')
-        options.add_argument("--disable-gpu")  # 在无头模式下有时需要
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument('--disable-blink-features=AutomationControlled')
-        service = Service()
+
+    HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+
+    def __init__(self, output_dir="ah_gov"):
+        """
+        初始化客户端。
+
+        Args:
+            output_dir (str): 存放结果的根目录。
+        """
+        self.output_dir = output_dir
+        LOG.info("AhGovClient (Async Version) 已初始化。")
+
+    def _save_base64_image(self, data_uri: str, save_dir: str) -> Optional[str]:
+        """解码Base64数据并保存为图片文件。"""
         try:
-            self.driver = webdriver.Edge(service=service, options=options)
-            LOG.info("浏览器启动成功")
+            header, encoded_data = data_uri.split(',', 1)
+            match = re.search(r'image/(\w+);', header)
+            file_extension = match.group(1) if match else 'png'
+            image_data = base64.b64decode(encoded_data)
+            filename = f"{uuid.uuid4()}.{file_extension}"
+            filepath = os.path.join(save_dir, filename)
+
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+            with open(filepath, 'wb') as f:
+                f.write(image_data)
+
+            # 返回相对于主Markdown文件的相对路径
+            return os.path.join('images', filename)
         except Exception as e:
-            LOG.error(f"浏览器启动失败: {e}")
-            raise e
+            LOG.error(f"保存Base64图片失败: {e}")
+            return None
 
-    def _get_article_urls(self, urls, a_css):
-        """
-        遍历所有列表页，提取所有新闻文章的链接。
-        """
-        LOG.debug("正在访问列表页并获取所有文章链接...")
-        all_urls = []
-        wait = WebDriverWait(self.driver, 15)
-        for url in tqdm(urls, desc="扫描列表页"):
-            try:
-                self.driver.get(url)
-                # 等待文章链接出现，这是页面加载成功的标志
-                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, a_css)))
-                alinks = self.driver.find_elements(by=By.CSS_SELECTOR, value=a_css)
-                for alink in alinks:
-                    href = alink.get_attribute('href')
-                    if href:
-                        # 将相对链接转换为绝对链接
-                        absolute_url = urljoin(url, href)
-                        all_urls.append(absolute_url)
-            except Exception as e:
-                LOG.error(f"访问或解析列表页时出错: {url} - {e}")
-
-        unique_urls = list(set(all_urls))
-        LOG.debug(f"扫描完成！共找到 {len(unique_urls)} 个独特的文章链接。")
-        return unique_urls
-
-
-    def _extract_article_data(self, url, content_css):
-        """
-            让浏览器访问单个文章URL，并提取标题和内容。
-            """
+    async def _get_article_urls(self, url: str, a_css: str, client: httpx.AsyncClient) -> List[str]:
+        """异步访问URL，提取所有匹配的文章链接。"""
         try:
-            self.driver.get(url)
-            wait = WebDriverWait(self.driver, 15)
+            response = await client.get(url, timeout=20)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'lxml')
+            article_tags = soup.select(a_css)
 
-            # 等待内容区域加载完成，这是页面加载成功的关键标志
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, content_css)))
+            found_urls = [urljoin(url, tag.get('href')) for tag in article_tags if tag.get('href')]
+            return found_urls
+        except httpx.RequestError as e:
+            LOG.error(f"请求列表页 {url} 时发生网络错误: {e}")
+            return []
+        except Exception as e:
+            LOG.error(f"解析列表页 {url} 时发生未知错误: {e}")
+            return []
 
-            # 提取正文
-            content_element = self.driver.find_element(By.CSS_SELECTOR, content_css)
-            content = self.driver.execute_script("return arguments[0].innerText;", content_element).strip()
-            images = list(map(lambda x: x.get_attribute('src'), content_element.find_elements(By.TAG_NAME, "img")))
+    async def _extract_and_process_article(self, url: str, content_css: str, client: httpx.AsyncClient,
+                                           image_save_dir: str) -> Optional[Dict]:
+        """访问单个文章URL，提取数据，并将内容转换为Markdown。"""
+        try:
+            response = await client.get(url, timeout=20)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'lxml')
+
+            title = soup.select_one('title').get_text(strip=True) if soup.select_one('title') else "无标题"
+            content_element = soup.select_one(content_css)
+
+            if not content_element:
+                LOG.warning(f"在 {url} 未找到内容元素 (CSS: {content_css})")
+                return None
+
+            content_markdown = md(str(content_element), heading_style="ATX").strip()
+
+            image_paths = []
+            for img_tag in content_element.find_all('img'):
+                src = img_tag.get('src')
+                if not src:
+                    continue
+
+                if src.startswith('data:image/'):
+                    local_path = self._save_base64_image(src, image_save_dir)
+                    if local_path:
+                        image_paths.append(local_path)
+                else:
+                    absolute_url = urljoin(url, src)
+                    image_paths.append(absolute_url)
 
             return {
                 "url": url,
-                "title": self.driver.title,
-                "content": content,
-                "images": images  # 提取所有图片的 src 属性
+                "title": title,
+                "content": content_markdown,
+                "image_paths": image_paths
             }
-
-        except TimeoutException:
-            LOG.error(f"访问超时或未找到内容元素: {url}")
-        except NoSuchElementException:
-            LOG.error(f"页面结构不匹配，无法找到内容: {url}")
         except Exception as e:
-            LOG.error(f"处理页面时发生未知错误 {url}: {e}")
-
-        return None
-
-    def fetch_articles(self):
-        """
-        使用 Selenium 获取所有配置的新闻文章链接，并提取内容。
-        """
-        all_articles = []
-        for config in self.ParseConfigs:
-            article_urls = self._get_article_urls(config["urls"], config["a_css"])
-            for url in tqdm(article_urls, desc="提取文章内容"):
-                try:
-                    article_data = self._extract_article_data(url, config["content_css"])
-                    if article_data:
-                        all_articles.append(article_data)
-                except Exception as e:
-                    LOG.error(f"提取文章内容时出错: {url} - {e}")
-
-        LOG.info(f"共提取到 {len(all_articles)} 篇文章。")
-        return all_articles
-
-    # @staticmethod
-    # def _save_to_markdown(output_dir: str, article_data: dict):
-    #     """
-    #     将提取的文章数据保存为 Markdown 文件。
-    #     """
-    #     if not article_data or not article_data.get('title') or not article_data.get('content'):
-    #         LOG.error(f"跳过保存，因为数据不完整: {article_data.get('url')}")
-    #         return False
-    #
-    #     os.makedirs(output_dir, exist_ok=True)
-    #
-    #     title = article_data['title']
-    #     content = article_data['content']
-    #     url = article_data['url']
-    #     images = article_data['images']
-    #
-    #     filepath = os.path.join(output_dir, title)
-    #
-    #     md_content = f"# [{title}]({url})\n\n"
-    #     md_content += "---\n\n"
-    #     md_content += content
-    #     md_content += "\n\n"
-    #     for image in images:
-    #         if image:
-    #             md_content += f"![Image]({image})\n"
-    #
-    #     try:
-    #         with open(filepath, 'w', encoding='utf-8') as f:
-    #             f.write(md_content)
-    #         return filepath
-    #     except Exception as e:
-    #         LOG.error(f"保存文件失败 {filepath}: {e}")
-    #         return ""
-
-    def export_articles(self, date=None):
-        LOG.debug("准备导出安徽政府的最新文章。")
-        articles = self.fetch_articles()  # 获取新闻数据
-
-        if not articles:
-            LOG.warning("未找到任何安徽政府的最新文章。")
+            LOG.error(f"处理文章 {url} 失败: {e}")
             return None
 
-        # 如果未提供 date 和 hour 参数，使用当前日期和时间
+    def _save_articles_to_markdown(self, articles: List[Dict], daily_output_dir: str, date_str: str) -> str:
+        """将提取的文章数据保存到单个Markdown文件中。"""
+        md_filename = f"{date_str}_安徽省政府公开信息.md"
+        md_filepath = os.path.join(daily_output_dir, md_filename)
+
+        with open(md_filepath, 'w', encoding='utf-8') as f:
+            f.write(f"# 安徽省政府网站公开信息 ({date_str})\n\n")
+            for idx, article in enumerate(articles, 1):
+                if not article: continue
+                f.write(f"---\n\n")
+                f.write(f"## {idx}. {article['title']}\n\n")
+                f.write(f"**源链接:** [{article['url']}]({article['url']})\n\n")
+                f.write(f"### 正文内容\n\n")
+                f.write(f"{article['content']}\n\n")
+
+                if article['image_paths']:
+                    f.write(f"### 相关图片\n\n")
+                    for img_path in article['image_paths']:
+                        # 确保路径在Markdown中是有效的（使用正斜杠）
+                        f.write(f"![Image]({img_path.replace(os.path.sep, '/')})\n")
+                f.write("\n")
+
+        LOG.info(f"所有文章已成功导出到: {md_filepath}")
+        return md_filepath
+
+    async def _run_async_pipeline(self, image_save_dir: str) -> List[Dict]:
+        """
+        执行完整的异步爬取和解析流程，正确处理多个配置。
+        """
+        # 我们将使用一个字典来存储待抓取的URL和其对应的content_css，
+        # 这也天然地解决了URL去重的问题。
+        # 格式: { "http://.../article1": "#css_selector_for_article1", ... }
+        urls_to_scrape = {}
+
+        async with httpx.AsyncClient(headers=self.HEADERS, follow_redirects=True) as client:
+            # --- 阶段一：并发获取所有文章链接，并保持其与content_css的关联 ---
+
+            # 为了保持关联，我们创建一个临时的辅助函数
+            async def get_urls_with_context(list_url: str, a_css: str, content_css: str) -> List[Tuple[str, str]]:
+                """获取链接，并为每个链接附加上下文（它的content_css）"""
+                found_urls = await self._get_article_urls(list_url, a_css, client)
+                return [(url, content_css) for url in found_urls]
+
+            LOG.info("开始从所有配置中获取文章链接...")
+            list_page_tasks = []
+            for config in self.ParseConfigs:
+                content_css_for_this_config = config["content_css"]
+                a_css_for_this_config = config["a_css"]
+                for list_url in config["urls"]:
+                    # 为每个列表页创建一个任务，这个任务会返回 (URL, content_css) 对
+                    task = get_urls_with_context(list_url, a_css_for_this_config, content_css_for_this_config)
+                    list_page_tasks.append(task)
+
+            # results 将是一个列表的列表，例如： [[('url1', 'css1')], [('url2', 'css2'), ('url3', 'css2')]]
+            results = await asyncio.gather(*list_page_tasks)
+
+            # 将所有结果扁平化并存入字典，完成去重
+            for url_css_pair_list in results:
+                for url, content_css in url_css_pair_list:
+                    urls_to_scrape[url] = content_css
+
+            if not urls_to_scrape:
+                LOG.warning("所有配置均未找到任何文章链接。")
+                return []
+
+            LOG.info(f"链接获取完成，共找到 {len(urls_to_scrape)} 个独特的文章链接。")
+
+            # --- 阶段二：并发提取所有文章的内容，使用各自正确的 content_css ---
+            LOG.info("开始提取文章内容...")
+            article_tasks = []
+            for url, content_css in urls_to_scrape.items():
+                # 在创建任务时，传入与该URL绑定的正确的content_css
+                task = self._extract_and_process_article(url, content_css, client, image_save_dir)
+                article_tasks.append(task)
+
+            # 使用tqdm显示进度条
+            articles_data = []
+            for future in tqdm(asyncio.as_completed(article_tasks), total=len(article_tasks), desc="提取文章内容"):
+                result = await future
+                articles_data.append(result)
+
+        # 过滤掉提取失败的结果 (None)
+        valid_articles = [data for data in articles_data if data]
+        LOG.info(f"内容提取完成，成功提取 {len(valid_articles)} 篇文章。")
+        return valid_articles
+
+    def export_articles(self, date: Optional[str] = None) -> Optional[str]:
+        """
+        公开方法：执行整个爬取、解析和导出流程。
+        这是一个同步方法，它在内部运行一个异步事件循环。
+
+        Args:
+            date (str, optional): YYYY-MM-DD格式的日期。如果为None，则使用当前日期。
+
+        Returns:
+            Optional[str]: 生成的Markdown文件的路径，如果失败则返回None。
+        """
+        LOG.info("开始执行文章导出任务...")
+
         if date is None:
-            date = datetime.now().strftime('%Y-%m-%d')
+            date_str = datetime.now().strftime('%Y-%m-%d')
+        else:
+            date_str = date
 
         # 构建存储路径
-        dir_path = os.path.join('ah_gov', date)
-        os.makedirs(dir_path, exist_ok=True)  # 确保目录存在
+        daily_output_dir = os.path.join(self.output_dir, date_str)
+        image_save_dir = os.path.join(daily_output_dir, 'images')
+        os.makedirs(image_save_dir, exist_ok=True)
 
-        # for article_data in articles:
-        #     if filepath := self._save_to_markdown(dir_path, article_data):
-        #         LOG.debug(f"文章已保存: {filepath}")
+        # 运行异步核心流程并获取结果
+        try:
+            # 这是连接同步和异步世界的桥梁
+            articles = asyncio.run(self._run_async_pipeline(image_save_dir))
+        except Exception as e:
+            LOG.error(f"异步爬取流程发生严重错误: {e}")
+            return None
 
-        file_path = os.path.join(dir_path, f'{date}.md')  # 定义文件路径
-        with open(file_path, 'w') as file:
-            file.write(f"# 安徽政府网站最新文件 ({date})\n\n")
-            for idx, article in enumerate(articles, start=1):
-                file.write(f"---\n\n## {idx}. [{article['title']}]({article['url']})\n\n")
-                file.write(f"{article['content']}\n\n")
-                for image in article['images']:
-                    if image:
-                        file.write(f"![Image]({image})\n")
-                file.write("\n")
+        if not articles:
+            LOG.warning("未找到任何可导出的文章。")
+            return None
 
-        LOG.info(f"安徽政府网站最新文件生成：{file_path}")
+        # 保存到文件
+        file_path = self._save_articles_to_markdown(articles, daily_output_dir, date_str)
         return file_path
 
+
 if __name__ == "__main__":
+    # --- 调用方式和原来完全一样 ---
+    LOG.info("创建 AhGovClient 实例...")
     client = AhGovClient()
-    client.export_articles()  # 默认情况下使用当前日期和时间
+
+    LOG.info("调用 export_articles 方法...")
+    markdown_file_path = client.export_articles()
+
+    if markdown_file_path:
+        LOG.info(f"任务成功完成！文件保存在: {markdown_file_path}")
+    else:
+        LOG.error("任务失败，未能生成文件。")

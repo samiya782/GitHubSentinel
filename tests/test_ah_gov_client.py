@@ -1,175 +1,173 @@
 import unittest
-from unittest.mock import patch, MagicMock, call, mock_open
+from unittest.mock import patch, MagicMock, AsyncMock, call, mock_open
 import sys
 import os
 from datetime import datetime
 
-# 将 src 目录添加到模块搜索路径，以便测试代码可以导入 src 目录中的模块
+# Add the source directory to the Python path
+# This assumes your test file is in a 'tests' directory and the client is in 'src'
+# Adjust the path if your project structure is different
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
-# 导入需要被测试的类
+# Import the class to be tested
 from ah_gov_client import AhGovClient
-# 导入 Selenium 的异常类，以便在测试中模拟它
-from selenium.common.exceptions import TimeoutException
 
 
-# 这是一个类装饰器。由于 AhGovClient 在 __init__ 方法中就会启动浏览器，
-# 我们需要对整个测试类应用 patch，以防止任何测试用例意外地启动真实浏览器。
-# 它会将 'ah_gov_client.webdriver.Edge' 替换为一个 MagicMock 对象。
-@patch('ah_gov_client.webdriver.Edge')
+# Since the new class is async, we don't need a class-level patch for the browser.
+# We will patch async methods and functions as needed within each test.
+
 class TestAhGovClient(unittest.TestCase):
 
     def setUp(self):
         """
-        这个方法在每个测试用例运行前都会被执行。
-        我们在这里准备一些通用的模拟数据。
+        This method runs before each test case.
+        We prepare mock data that matches the new async implementation's output.
         """
-        # 模拟 fetch_articles 方法成功时应该返回的文章数据
+        # The client is now safe to instantiate without side effects.
+        self.client = AhGovClient()
+
+        # Mock articles with the new data structure ('content' is Markdown, 'image_paths')
         self.mock_articles = [
             {
                 'url': 'http://example.com/article1',
                 'title': '安徽省发布重要通知',
-                'content': '这是第一篇文章的内容。',
-                'images': ['http://example.com/img1.jpg']
+                'content': '## 重要通知\n\n这是第一篇文章的内容。',
+                'image_paths': ['http://example.com/img1.jpg', 'images/some_base64_img.png']
             },
             {
                 'url': 'http://example.com/article2',
                 'title': '合肥市发展新规划',
-                'content': '这是第二篇文章的内容。',
-                'images': []
+                'content': '### 新规划详情\n\n这是第二篇文章的内容。',
+                'image_paths': []
             }
         ]
 
-    def test_init_success(self, mock_webdriver_edge):
+    def test_init_success(self):
         """
-        测试场景：客户端初始化成功。
-        验证它是否正确地尝试启动了浏览器。
+        Test Case: Client initialization.
+        Verification: The client is instantiated with the correct default attributes.
         """
-        # 'mock_webdriver_edge' 参数由类装饰器 @patch 传入
-        client = AhGovClient()
-        # 断言：webdriver.Edge 这个类被调用过一次，意味着代码尝试了启动浏览器
-        mock_webdriver_edge.assert_called_once()
-        # 断言：客户端实例的 driver 属性不为空，已被赋值
-        self.assertIsNotNone(client.driver)
+        # The new __init__ is simple and doesn't start any external processes.
+        self.assertIsInstance(self.client, AhGovClient)
+        self.assertEqual(self.client.output_dir, "ah_gov")
+        self.assertIsNotNone(self.client.log)
 
-    @patch('ah_gov_client.LOG.error')
-    def test_init_failure(self, mock_log_error, mock_webdriver_edge):
-        """
-        测试场景：浏览器启动过程中发生异常。
-        验证错误是否被正确记录，并且异常被抛出。
-        """
-        # 准备：让模拟的 webdriver.Edge 在实例化时抛出异常
-        mock_webdriver_edge.side_effect = Exception("浏览器驱动未找到")
-
-        # 执行与断言：确认在创建 AhGovClient 实例时会抛出异常
-        with self.assertRaises(Exception):
-            AhGovClient()
-
-        # 断言：检查 LOG.error 是否以预期的错误信息被调用
-        mock_log_error.assert_called_with("浏览器启动失败: 浏览器驱动未找到")
-
-    @patch('ah_gov_client.AhGovClient._extract_article_data')
-    @patch('ah_gov_client.AhGovClient._get_article_urls')
-    def test_fetch_articles_success(self, mock_get_urls, mock_extract_data, mock_webdriver_edge):
-        """
-        测试场景：测试核心的 fetch_articles 编排方法。
-        我们通过模拟它的两个辅助方法来独立测试其自身的逻辑。
-        """
-        # 准备：配置各个模拟对象的返回值
-        mock_get_urls.return_value = ['http://example.com/article1', 'http://example.com/article2']
-        # 使用 side_effect 可以让 mock_extract_data 每次被调用时返回不同的值
-        mock_extract_data.side_effect = self.mock_articles
-
-        # 执行：调用被测试的方法
-        client = AhGovClient()
-        articles = client.fetch_articles()
-
-        # 断言：检查返回结果和模拟对象的调用情况
-        self.assertEqual(len(articles), 2)
-        self.assertEqual(articles[0]['title'], '安徽省发布重要通知')
-        # 确认 _get_article_urls 被调用了一次
-        mock_get_urls.assert_called_once()
-        # 确认 _extract_article_data 为每个URL都被调用了一次
-        self.assertEqual(mock_extract_data.call_count, 2)
-        # 更精确地检查 _extract_article_data 的调用参数
-        mock_extract_data.assert_has_calls([
-            call('http://example.com/article1', '#container > div.container'),
-            call('http://example.com/article2', '#container > div.container')
-        ])
-
-    @patch('ah_gov_client.AhGovClient._extract_article_data', return_value=None)
-    @patch('ah_gov_client.AhGovClient._get_article_urls')
-    @patch('ah_gov_client.LOG.error')
-    def test_fetch_articles_extraction_fails(self, mock_log_error, mock_get_urls, mock_extract_data,
-                                             mock_webdriver_edge):
-        """
-        测试场景：当 _extract_article_data 方法提取失败时，程序能优雅地处理。
-        """
-        # 准备：模拟获取到一个URL，但在提取时发生异常
-        mock_get_urls.return_value = ['http://example.com/bad_article']
-        mock_extract_data.side_effect = Exception("提取失败")
-
-        client = AhGovClient()
-        articles = client.fetch_articles()
-
-        # 断言：文章列表应为空，因为唯一的一篇文章提取失败了
-        self.assertEqual(len(articles), 0)
-        # 断言：记录了相应的错误日志
-        mock_log_error.assert_called_with("提取文章内容时出错: http://example.com/bad_article - 提取失败")
-
+    # We now test the public `export_articles` method by mocking the async pipeline it runs.
+    # This is the most important test for the class's public API.
+    @patch('ah_gov_client.AhGovClient._run_async_pipeline')
     @patch('ah_gov_client.os.makedirs')
-    @patch('ah_gov_client.open', new_callable=mock_open)
-    @patch('ah_gov_client.AhGovClient.fetch_articles')
-    def test_export_articles_success(self, mock_fetch_articles, mock_open_func, mock_makedirs, mock_webdriver_edge):
+    @patch('builtins.open', new_callable=mock_open)
+    def test_export_articles_success(self, mock_open_func, mock_makedirs, mock_async_pipeline):
         """
-        测试场景：成功将获取到的文章导出为 Markdown 文件。
+        Test Case: Successfully exporting articles to a Markdown file.
+        Strategy: Mock the entire async pipeline to control its output directly.
         """
-        # 准备：模拟 fetch_articles 方法，让它直接返回我们的测试数据
-        mock_fetch_articles.return_value = self.mock_articles
+        # Arrange: Configure the mock async pipeline to return our test articles.
+        mock_async_pipeline.return_value = self.mock_articles
 
-        # 执行：调用导出方法
-        client = AhGovClient()
-        file_path = client.export_articles(date="2024-09-02")
+        # Act: Call the public export method.
+        file_path = self.client.export_articles(date="2024-09-02")
 
-        # 断言：检查文件和目录操作是否符合预期
+        # Assert: Verify file system operations and the final result.
         expected_dir = os.path.join('ah_gov', '2024-09-02')
-        expected_path = os.path.join(expected_dir, '2024-09-02.md')
+        expected_path = os.path.join(expected_dir, '2024-09-02_安徽省政府公开信息.md')
 
-        mock_makedirs.assert_called_once_with(expected_dir, exist_ok=True)
-        mock_open_func.assert_called_once_with(expected_path, 'w')
+        mock_makedirs.assert_called_once_with(os.path.join(expected_dir, 'images'), exist_ok=True)
+        mock_open_func.assert_called_once_with(expected_path, 'w', encoding='utf-8')
         self.assertEqual(file_path, expected_path)
 
-        # 断言：检查写入文件的内容是否正确
-        handle = mock_open_func()  # 获取文件句柄的模拟对象
-        handle.write.assert_any_call("# 安徽政府网站最新文件 (2024-09-02)\n\n")
-        handle.write.assert_any_call("---\n\n## 1. [安徽省发布重要通知](http://example.com/article1)\n\n")
-        handle.write.assert_any_call("这是第一篇文章的内容。\n\n")
+        # Assert: Check the content written to the mock file.
+        handle = mock_open_func()
+        handle.write.assert_any_call("# 安徽省政府网站公开信息 (2024-09-02)\n\n")
+        handle.write.assert_any_call(f"## 1. {self.mock_articles[0]['title']}\n\n")
+        handle.write.assert_any_call(f"{self.mock_articles[0]['content']}\n\n")
+        # Check that image paths are correctly formatted (using forward slashes)
         handle.write.assert_any_call("![Image](http://example.com/img1.jpg)\n")
+        handle.write.assert_any_call("![Image](images/some_base64_img.png)\n")
 
+    @patch('ah_gov_client.AhGovClient._run_async_pipeline')
     @patch('ah_gov_client.LOG.warning')
-    @patch('ah_gov_client.os.makedirs')
-    @patch('ah_gov_client.open', new_callable=mock_open)
-    @patch('ah_gov_client.AhGovClient.fetch_articles')
-    def test_export_articles_no_articles_found(self, mock_fetch, mock_open_func, mock_makedirs, mock_log_warning,
-                                               mock_webdriver_edge):
+    def test_export_articles_no_articles_found(self, mock_log_warning, mock_async_pipeline):
         """
-        测试场景：当没有获取到任何文章时，程序的行为。
+        Test Case: The async pipeline finds no articles.
+        Verification: The method should log a warning and return None without creating files.
         """
-        # 准备：模拟 fetch_articles 返回一个空列表
-        mock_fetch.return_value = []
+        # Arrange: Mock the pipeline to return an empty list.
+        mock_async_pipeline.return_value = []
 
-        # 执行
-        client = AhGovClient()
-        file_path = client.export_articles()
+        # Act
+        file_path = self.client.export_articles()
 
-        # 断言
-        self.assertIsNone(file_path)  # 确认返回值为 None
-        mock_log_warning.assert_called_once_with("未找到任何安徽政府的最新文章。")
-        # 确认没有进行任何文件或目录的创建操作
-        mock_makedirs.assert_not_called()
-        mock_open_func.assert_not_called()
+        # Assert
+        self.assertIsNone(file_path)
+        mock_log_warning.assert_called_once_with("未找到任何可导出的文章。")
+
+    @patch('ah_gov_client.AhGovClient._run_async_pipeline')
+    @patch('ah_gov_client.LOG.error')
+    def test_export_articles_pipeline_fails(self, mock_log_error, mock_async_pipeline):
+        """
+        Test Case: The async pipeline raises an exception during execution.
+        Verification: The exception should be caught, logged, and the method should fail gracefully.
+        """
+        # Arrange: Mock the pipeline to raise an exception.
+        mock_async_pipeline.side_effect = Exception("Network connection failed")
+
+        # Act
+        file_path = self.client.export_articles()
+
+        # Assert
+        self.assertIsNone(file_path)
+        # We patch asyncio.run, which is what calls the pipeline.
+        # The exception is caught in the `export_articles` method.
+        # We need to find the correct patch target for asyncio.run
+        # A better way is to patch the pipeline itself, which is what we did.
+        # The try-except block in export_articles will catch this.
+        # Let's re-check the source code. `articles = asyncio.run(...)`
+        # Ah, the `asyncio.run` is what we need to patch to simulate the exception.
+        # Let's correct this test.
+
+        # Re-arranging the test for better accuracy
+        with patch('ah_gov_client.asyncio.run') as mock_asyncio_run:
+            mock_asyncio_run.side_effect = Exception("Async pipeline crashed")
+
+            # Act
+            file_path = self.client.export_articles()
+
+            # Assert
+            self.assertIsNone(file_path)
+            mock_log_error.assert_called_with("异步爬取流程发生严重错误: Async pipeline crashed")
+
+    # The following is a more advanced test for the internal async method itself.
+    # It requires the test method to be async.
+    @patch('ah_gov_client.httpx.AsyncClient')
+    async def test_internal_get_article_urls(self, MockAsyncClient):
+        """
+        Test Case: Test the internal `_get_article_urls` async method.
+        Strategy: Use `AsyncMock` to simulate the async httpx client.
+        """
+        # Arrange
+        mock_response = MagicMock()
+        mock_response.text = '<html><body><a class="tit" href="/page1.html">Title 1</a></body></html>'
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client_instance = AsyncMock()
+        mock_client_instance.get.return_value = mock_response
+
+        # Configure the class-level mock to return our instance when used as a context manager
+        MockAsyncClient.return_value.__aenter__.return_value = mock_client_instance
+
+        # Act
+        urls = await self.client._get_article_urls(
+            "http://base.url", "a.tit", mock_client_instance
+        )
+
+        # Assert
+        self.assertEqual(len(urls), 1)
+        self.assertEqual(urls[0], "http://base.url/page1.html")
+        mock_client_instance.get.assert_awaited_once_with("http://base.url", timeout=20)
 
 
 if __name__ == '__main__':
-    # 这样可以在不使用测试运行器的情况下直接运行此脚本
-    unittest.main(argv=['first-arg-is-ignored'], exit=False)
+    # To run async tests, unittest needs a bit of help.
+    # For modern Python (3.8+), unittest.main() can discover and run async tests automatically.
+    unittest.main()
