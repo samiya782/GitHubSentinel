@@ -9,8 +9,13 @@ from typing import List, Dict, Optional, Tuple
 
 import httpx
 from bs4 import BeautifulSoup
+from langchain_core.documents import Document
 from markdownify import markdownify as md
 from tqdm import tqdm
+
+import torch
+from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
 
 from logger import LOG
 
@@ -207,6 +212,51 @@ class AhGovClient:
         LOG.info(f"内容提取完成，成功提取 {len(valid_articles)} 篇文章。")
         return valid_articles
 
+    # --- 新增方法：将文章存入Chroma向量数据库 ---
+    def _save_articles_to_chroma(self, articles: List[Dict], db_path: str):
+        """
+        将文章内容和元数据存储到Chroma向量数据库中。
+
+        Args:
+            articles (List[Dict]): 包含文章信息的字典列表。
+            db_path (str): Chroma数据库的存储路径。
+        """
+        if not articles:
+            LOG.warning("没有文章可以存入ChromaDB。")
+            return
+
+        LOG.info(f"开始将 {len(articles)} 篇文章存入ChromaDB，路径: {db_path}")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        try:
+            docs = [
+                Document(
+                    # page_content 应该是核心文本
+                    page_content=item["content"],
+                    # metadata 包含所有其他信息
+                    metadata={
+                        "source_url": item["url"],  # 建议在 key 上加个前缀，如 'source_'
+                        "title": item["title"]
+                    }
+                ) for item in articles
+            ]
+            # 定义嵌入函数，使用指定的中文模型
+            sentence_transform_embeddings = HuggingFaceEmbeddings(
+                model_name='BAAI/bge-base-zh-v1.5',
+                model_kwargs={'device': device},
+                encode_kwargs={'normalize_embeddings': True}  # BGE 模型推荐进行归一化
+            )
+            # 创建一个持久化的Chroma客户端
+            vectorstore = Chroma.from_documents(
+                documents=docs,
+                embedding=sentence_transform_embeddings,
+                persist_directory=db_path
+            )
+
+            LOG.info(f"成功将 {len(articles)} 篇文章存入ChromaDB集合 'ah_gov_articles'。")
+
+        except Exception as e:
+            LOG.error(f"存入ChromaDB时发生错误: {e}")
+
     def export_articles(self, date: Optional[str] = None) -> Optional[str]:
         """
         公开方法：执行整个爬取、解析和导出流程。
@@ -244,6 +294,9 @@ class AhGovClient:
 
         # 保存到文件
         file_path = self._save_articles_to_markdown(articles, daily_output_dir, date_str)
+        # 保存到Chroma向量数据库
+        chroma_db_path = os.path.join(daily_output_dir, 'chroma_db')
+        self._save_articles_to_chroma(articles, chroma_db_path)
         return file_path
 
 
