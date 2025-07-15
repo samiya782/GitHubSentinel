@@ -1,0 +1,31 @@
+[project]
+name = "githubsentinel"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "bs4>=0.0.2",
+    "ffmpeg-python>=0.2.0",
+    "google-genai>=1.25.0",
+    "gradio==5.35.0",
+    "langchain-chroma>=0.2.4",
+    "langchain-community>=0.3.27",
+    "langchain-google-genai>=2.1.7",
+    "langchain-huggingface>=0.3.0",
+    "langchain-openai>=0.3.28",
+    "langchain-tavily>=0.2.7",
+    "langgraph>=0.5.2",
+    "loguru>=0.7.3",
+    "lxml>=6.0.0",
+    "markdown2>=2.5.3",
+    "markdownify>=1.1.0",
+    "openai>=1.95.0",
+    "openai-whisper>=20250625",
+    "python-dotenv>=1.1.1",
+    "requests>=2.32.4",
+    "schedule>=1.2.2",
+    "selenium>=4.34.2",
+    "sentence-transformers>=5.0.0",
+    "strenum>=0.4.15",
+    "tqdm>=4.67.1",
+]
