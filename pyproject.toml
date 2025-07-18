@@ -19,6 +19,7 @@ dependencies = [
     "lxml>=6.0.0",
     "markdown2>=2.5.3",
     "markdownify>=1.1.0",
+    "notebook>=7.4.4",
     "openai>=1.95.0",
     "openai-whisper>=20250625",
     "python-dotenv>=1.1.1",

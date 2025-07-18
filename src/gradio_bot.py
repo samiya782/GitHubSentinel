@@ -36,6 +36,9 @@ except Exception as e:
     print(f"核心组件初始化失败: {e}")
     exit()
 
+import pathlib
+robot_path = pathlib.Path(__file__).parent.parent / "images/robot.svg"
+LOG.info(f"机器人图标路径: {robot_path}")
 # ChatBot不再在此处初始化，将由用户在UI中触发
 
 # --- 报告生成器功能函数 ---
@@ -207,7 +210,7 @@ with gr.Blocks(title="智能信息平台", theme=gr.themes.Soft()) as demo:
 
             with gr.Column(scale=2):
                 gr.Markdown("### ❸ 对话历史")
-                chatbot_display = gr.Chatbot(height=600, type="messages", avatar_images=(None, "🤖"), label="对话窗口")
+                chatbot_display = gr.Chatbot(height=600, type="messages", avatar_images=(None, robot_path), label="对话窗口")
 
         # 绑定事件
         chat_model_type.change(fn=update_model_list, inputs=chat_model_type, outputs=chat_model_name)
